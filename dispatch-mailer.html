@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dispatch Board — Driver Auto-Mailer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#14171A; --surface:#1D2126; --surface-2:#22262C; --border:#2B3036;
+    --text:#E8E5DE; --muted:#8B9198;
+    --accent:#E8A23D; --accent-ink:#3A2A0C;
+    --route:#4C7A8B;
+    --success:#5B8C5A; --success-bg:rgba(91,140,90,0.14);
+    --danger:#C1554A; --danger-bg:rgba(193,85,74,0.14);
+    --pending-bg:rgba(139,145,152,0.14);
+  }
+  [data-theme="light"]{
+    --bg:#F6F4EF; --surface:#FFFFFF; --surface-2:#FBFAF7; --border:#DEDAD0;
+    --text:#1B1F24; --muted:#6B6558;
+    --accent:#C97F1E; --accent-ink:#FFF6E7;
+    --route:#2F5A6B;
+    --success:#3E6E3D; --success-bg:rgba(62,110,61,0.10);
+    --danger:#A73F35; --danger-bg:rgba(167,63,53,0.10);
+    --pending-bg:rgba(107,101,88,0.10);
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+    transition:background .25s ease, color .25s ease;
+  }
+  h1,h2,h3,.num,.mono{font-family:'Barlow Condensed',sans-serif;}
+  .wrap{max-width:1120px; margin:0 auto; padding:28px 20px 80px;}
+
+  /* header */
+  header{display:flex; align-items:center; justify-content:space-between; margin-bottom:26px;}
+  .brand{display:flex; align-items:baseline; gap:10px;}
+  .brand h1{font-size:30px; font-weight:600; letter-spacing:.2px;}
+  .brand span{color:var(--muted); font-size:14px; font-family:'Inter',sans-serif;}
+  .theme-toggle{
+    display:flex; align-items:center; gap:8px; background:var(--surface);
+    border:1px solid var(--border); border-radius:20px; padding:5px 6px; cursor:pointer;
+  }
+  .theme-toggle .dot{
+    width:16px; height:16px; border-radius:50%; background:var(--accent);
+    transition:transform .2s ease;
+  }
+  [data-theme="light"] .theme-toggle .dot{transform:translateX(18px);}
+  .theme-toggle span{font-size:12px; color:var(--muted); padding:0 4px;}
+
+  /* hero board */
+  .board{
+    background:var(--surface); border:1px solid var(--border); border-radius:6px;
+    padding:22px 22px 8px; margin-bottom:22px;
+  }
+  .board-top{display:flex; flex-wrap:wrap; gap:26px; align-items:flex-end; justify-content:space-between; margin-bottom:18px;}
+  .counts{display:flex; gap:26px;}
+  .count-item .num{font-size:34px; line-height:1; font-weight:600;}
+  .count-item .lbl{font-size:12.5px; color:var(--muted); margin-top:3px;}
+  .count-item.sent .num{color:var(--success);}
+  .count-item.failed .num{color:var(--danger);}
+  .next-up{
+    background:var(--surface-2); border:1px solid var(--border); border-radius:5px;
+    padding:10px 16px; font-size:13.5px; color:var(--muted); min-width:230px;
+  }
+  .next-up b{color:var(--text); font-weight:600;}
+  .next-up .countdown{font-family:'Barlow Condensed',sans-serif; font-size:20px; color:var(--accent); font-weight:600;}
+
+  table{width:100%; border-collapse:collapse; font-size:14px;}
+  thead th{
+    text-align:left; font-weight:500; color:var(--muted); font-size:12.5px;
+    padding:8px 6px; border-bottom:1px solid var(--border);
+  }
+  tbody td{padding:10px 6px; border-bottom:1px solid var(--border); vertical-align:middle;}
+  tbody tr:last-child td{border-bottom:none;}
+  .seq{color:var(--muted); font-family:'Barlow Condensed',sans-serif; font-size:15px;}
+  .driver-name{font-weight:500;}
+  .driver-email{color:var(--muted); font-size:13px;}
+  .badge{
+    display:inline-block; font-size:12px; padding:3px 9px; border-radius:3px; font-weight:500;
+  }
+  .badge.pending{background:var(--pending-bg); color:var(--muted);}
+  .badge.sending{background:var(--accent-ink); color:var(--accent); border:1px solid var(--accent);}
+  .badge.sent{background:var(--success-bg); color:var(--success);}
+  .badge.failed{background:var(--danger-bg); color:var(--danger);}
+  .row-time{color:var(--muted); font-size:12.5px;}
+  .empty-row{color:var(--muted); font-size:13.5px; padding:20px 6px; text-align:center;}
+  .remove-btn{background:none; border:none; color:var(--muted); cursor:pointer; font-size:13px;}
+  .remove-btn:hover{color:var(--danger);}
+
+  /* two column grid */
+  .grid{display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-bottom:18px;}
+  @media (max-width:760px){.grid{grid-template-columns:1fr;}}
+
+  .panel{
+    background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px;
+    border-left:2px solid var(--route);
+  }
+  .panel h2{font-size:14.5px; font-weight:500; font-family:'Inter',sans-serif; margin-bottom:14px; display:flex; gap:8px; align-items:center;}
+  .panel h2 .step{
+    font-family:'Barlow Condensed',sans-serif; color:var(--route); font-weight:600; font-size:16px;
+  }
+  label{display:block; font-size:12.5px; color:var(--muted); margin-bottom:5px; margin-top:12px;}
+  label:first-of-type{margin-top:0;}
+  input[type=text], input[type=email], textarea, select{
+    width:100%; background:var(--surface-2); border:1px solid var(--border); color:var(--text);
+    border-radius:4px; padding:9px 10px; font-size:14px; font-family:'Inter',sans-serif;
+  }
+  textarea{resize:vertical; min-height:90px; line-height:1.5;}
+  .hint{font-size:11.5px; color:var(--muted); margin-top:5px;}
+  .hint a{color:var(--route);}
+  .row-inline{display:flex; gap:8px; margin-top:12px;}
+  .row-inline input{flex:1;}
+
+  button.btn{
+    font-family:'Inter',sans-serif; font-weight:500; font-size:13.5px; padding:9px 16px;
+    border-radius:4px; border:1px solid var(--border); background:var(--surface-2); color:var(--text);
+    cursor:pointer;
+  }
+  button.btn:hover{border-color:var(--muted);}
+  button.btn.primary{background:var(--accent); border-color:var(--accent); color:var(--accent-ink);}
+  button.btn.primary:hover{opacity:.9;}
+  button.btn.ghost{background:transparent;}
+  button.btn:disabled{opacity:.45; cursor:not-allowed;}
+  .btn-row{display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;}
+
+  .upload-row{display:flex; gap:8px; margin-bottom:10px;}
+  .upload-btn{
+    flex:1; text-align:center; padding:10px; border:1px dashed var(--border); border-radius:4px;
+    font-size:13px; color:var(--muted); cursor:pointer; background:var(--surface-2);
+  }
+  .upload-btn:hover{border-color:var(--route); color:var(--text);}
+  .driver-mini-list{max-height:150px; overflow-y:auto; margin-top:10px; font-size:12.5px;}
+  .driver-mini-list div{display:flex; justify-content:space-between; padding:5px 2px; border-bottom:1px solid var(--border);}
+
+  .banner{
+    background:var(--pending-bg); border:1px solid var(--border); border-radius:5px;
+    padding:10px 14px; font-size:13px; color:var(--muted); margin-bottom:16px;
+  }
+  .banner b{color:var(--text);}
+  footer{text-align:center; font-size:12px; color:var(--muted); margin-top:30px;}
+</style>
+</head>
+<body data-theme="dark">
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <h1>Dispatch Board</h1>
+      <span>automated driver email queue</span>
+    </div>
+    <div class="theme-toggle" id="themeToggle">
+      <span>Dark</span><div class="dot"></div><span>Light</span>
+    </div>
+  </header>
+
+  <div class="banner" id="setupBanner">
+    <b>Not connected yet.</b> Fill in steps 1–4 below. Until you connect a real email service, "Start sending" will run in simulation mode so you can test the flow safely.
+  </div>
+
+  <!-- HERO: live board -->
+  <div class="board">
+    <div class="board-top">
+      <div class="counts">
+        <div class="count-item"><div class="num" id="cTotal">0</div><div class="lbl">total drivers</div></div>
+        <div class="count-item sent"><div class="num" id="cSent">0</div><div class="lbl">emails sent</div></div>
+        <div class="count-item"><div class="num" id="cPending">0</div><div class="lbl">pending</div></div>
+        <div class="count-item failed"><div class="num" id="cFailed">0</div><div class="lbl">failed</div></div>
+      </div>
+      <div class="next-up" id="nextUpBox">
+        Queue is idle — press <b>Start sending</b> once your list and message are ready.
+      </div>
+    </div>
+    <table>
+      <thead><tr><th style="width:34px;">#</th><th>Driver</th><th>Email</th><th style="width:110px;">Status</th><th style="width:110px;">Time</th><th style="width:30px;"></th></tr></thead>
+      <tbody id="queueBody">
+        <tr><td colspan="6" class="empty-row">No drivers loaded yet — add them in step 2 below.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- step 1 + 2 -->
+  <div class="grid">
+    <div class="panel">
+      <h2><span class="step">1</span> Connect your email</h2>
+      <label>EmailJS Service ID</label>
+      <input type="text" id="serviceId" placeholder="e.g. service_abc1234">
+      <label>EmailJS Template ID</label>
+      <input type="text" id="templateId" placeholder="e.g. template_xyz789">
+      <label>EmailJS Public Key</label>
+      <input type="text" id="publicKey" placeholder="e.g. AbCdEfGhIjKl">
+      <div class="hint">
+        This tool sends through <a href="https://www.emailjs.com" target="_blank">EmailJS</a>, a free service that connects
+        directly to your Gmail/Outlook without a backend server. Create an account, link your inbox, and make a template
+        with variables <span class="mono">to_email</span>, <span class="mono">to_name</span>, <span class="mono">subject</span>, <span class="mono">message</span>.
+      </div>
+      <div class="btn-row"><button class="btn" id="saveConn">Save connection</button></div>
+    </div>
+
+    <div class="panel">
+      <h2><span class="step">2</span> Driver list</h2>
+      <div class="upload-row">
+        <label class="upload-btn" for="fileInput">Upload .xlsx / .csv</label>
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none;">
+      </div>
+      <label>Or paste emails (one per line — "Name, email" or just the email)</label>
+      <textarea id="pasteBox" placeholder="John Diaz, john@fleetmail.com&#10;maria@fleetmail.com"></textarea>
+      <div class="btn-row">
+        <button class="btn" id="addPasted">Add to list</button>
+        <button class="btn ghost" id="clearList">Clear list</button>
+      </div>
+      <div class="driver-mini-list" id="miniList"></div>
+    </div>
+  </div>
+
+  <!-- step 3 + 4 -->
+  <div class="grid">
+    <div class="panel">
+      <h2><span class="step">3</span> Message</h2>
+      <label>Subject</label>
+      <input type="text" id="subject" placeholder="Load status update — please confirm">
+      <label>Body</label>
+      <textarea id="body" placeholder="Hi {{name}}, checking in on your current load. Reply with your ETA when you get a chance."></textarea>
+      <div class="hint">Use <span class="mono">{{name}}</span> anywhere in the body to insert each driver's name automatically.</div>
+    </div>
+
+    <div class="panel">
+      <h2><span class="step">4</span> Send settings</h2>
+      <label>Delay between each email</label>
+      <select id="delaySelect">
+        <option value="5">5 seconds</option>
+        <option value="10" selected>10 seconds</option>
+        <option value="15">15 seconds</option>
+        <option value="20">20 seconds</option>
+        <option value="30">30 seconds</option>
+        <option value="60">1 minute</option>
+        <option value="120">2 minutes</option>
+        <option value="300">5 minutes</option>
+        <option value="600">10 minutes</option>
+        <option value="900">15 minutes</option>
+        <option value="1200">20 minutes</option>
+        <option value="1800">30 minutes</option>
+      </select>
+      <div class="hint">Spacing sends out avoids hitting your provider's per-minute limits when the list is long.</div>
+      <div class="btn-row">
+        <button class="btn primary" id="startBtn">Start sending</button>
+        <button class="btn" id="pauseBtn" disabled>Pause</button>
+        <button class="btn ghost" id="stopBtn" disabled>Stop &amp; reset</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>Runs entirely in this page — your list and message never leave your browser except through the email connection you configure above.</footer>
+</div>
+
+<script>
+let drivers = [];      // {id, name, email, status, time}
+let config = {serviceId:'', templateId:'', publicKey:''};
+let sending = false, paused = false, timer = null, countdownTimer = null, currentIndex = 0;
+
+const $ = id => document.getElementById(id);
+
+// ---------- theme ----------
+$('themeToggle').addEventListener('click', () => {
+  const el = document.body;
+  el.dataset.theme = el.dataset.theme === 'dark' ? 'light' : 'dark';
+});
+
+// ---------- connection ----------
+$('saveConn').addEventListener('click', () => {
+  config.serviceId = $('serviceId').value.trim();
+  config.templateId = $('templateId').value.trim();
+  config.publicKey = $('publicKey').value.trim();
+  const ok = config.serviceId && config.templateId && config.publicKey;
+  $('setupBanner').innerHTML = ok
+    ? '<b>Connected.</b> Sends will go out for real through your EmailJS service.'
+    : '<b>Not fully connected.</b> Fill in all three fields to send real emails — otherwise "Start sending" runs in simulation mode.';
+});
+
+// ---------- driver list ----------
+function renderList(){
+  $('cTotal').textContent = drivers.length;
+  $('cSent').textContent = drivers.filter(d=>d.status==='sent').length;
+  $('cPending').textContent = drivers.filter(d=>d.status==='pending').length;
+  $('cFailed').textContent = drivers.filter(d=>d.status==='failed').length;
+
+  const body = $('queueBody');
+  if(!drivers.length){
+    body.innerHTML = '<tr><td colspan="6" class="empty-row">No drivers loaded yet — add them in step 2 below.</td></tr>';
+  } else {
+    body.innerHTML = drivers.map((d,i) => `
+      <tr>
+        <td class="seq">${i+1}</td>
+        <td class="driver-name">${escapeHtml(d.name || '—')}</td>
+        <td class="driver-email">${escapeHtml(d.email)}</td>
+        <td><span class="badge ${d.status}">${labelFor(d.status)}</span></td>
+        <td class="row-time">${d.time || ''}</td>
+        <td><button class="remove-btn" onclick="removeDriver('${d.id}')">✕</button></td>
+      </tr>`).join('');
+  }
+
+  $('miniList').innerHTML = drivers.map(d =>
+    `<div><span>${escapeHtml(d.name || d.email)}</span><span class="badge ${d.status}">${labelFor(d.status)}</span></div>`
+  ).join('');
+}
+function labelFor(s){ return {pending:'Pending', sending:'Sending…', sent:'Sent', failed:'Failed'}[s] || s; }
+function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function removeDriver(id){ drivers = drivers.filter(d=>d.id!==id); renderList(); }
+
+function addDriver(name, email){
+  if(!email || !/^\S+@\S+\.\S+$/.test(email)) return;
+  drivers.push({id: Date.now()+'_'+Math.random().toString(36).slice(2), name: (name||'').trim(), email: email.trim(), status:'pending', time:''});
+}
+
+$('addPasted').addEventListener('click', () => {
+  const lines = $('pasteBox').value.split('\n').map(l=>l.trim()).filter(Boolean);
+  lines.forEach(line => {
+    const emailMatch = line.match(/[^\s,<>]+@[^\s,<>]+\.[^\s,<>]+/);
+    if(!emailMatch) return;
+    const email = emailMatch[0];
+    let name = line.replace(email,'').replace(/[<>,]/g,'').trim();
+    addDriver(name, email);
+  });
+  $('pasteBox').value = '';
+  renderList();
+});
+
+$('clearList').addEventListener('click', () => { drivers = []; renderList(); });
+
+$('fileInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    const wb = XLSX.read(ev.target.result, {type:'array'});
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, {defval:''});
+    rows.forEach(row => {
+      let name='', email='';
+      Object.keys(row).forEach(k => {
+        const kl = k.toLowerCase();
+        if(kl.includes('email')) email = String(row[k]);
+        else if(kl.includes('name') && !name) name = String(row[k]);
+      });
+      if(!email){
+        const vals = Object.values(row).map(String);
+        const found = vals.find(v => /@/.test(v));
+        if(found) email = found;
+      }
+      addDriver(name, email);
+    });
+    renderList();
+  };
+  reader.readAsArrayBuffer(file);
+});
+
+// ---------- sending engine ----------
+function setControls(state){
+  // state: idle | running | paused
+  $('startBtn').disabled = state !== 'idle';
+  $('pauseBtn').disabled = state === 'idle';
+  $('stopBtn').disabled = state === 'idle';
+  $('pauseBtn').textContent = state === 'paused' ? 'Resume' : 'Pause';
+}
+
+$('startBtn').addEventListener('click', () => {
+  if(!drivers.length){ alert('Add at least one driver email first.'); return; }
+  if(!$('subject').value.trim() || !$('body').value.trim()){ alert('Write a subject and body first.'); return; }
+  drivers.forEach(d => { if(d.status!=='sent') { d.status='pending'; d.time=''; } });
+  currentIndex = drivers.findIndex(d=>d.status!=='sent');
+  if(currentIndex === -1) currentIndex = 0;
+  sending = true; paused = false;
+  setControls('running');
+  renderList();
+  scheduleNext(0);
+});
+
+$('pauseBtn').addEventListener('click', () => {
+  if(!sending) return;
+  paused = !paused;
+  setControls(paused ? 'paused' : 'running');
+  if(paused){ clearTimeout(timer); clearInterval(countdownTimer); $('nextUpBox').textContent = 'Paused.'; }
+  else { scheduleNext(0); }
+});
+
+$('stopBtn').addEventListener('click', () => {
+  sending = false; paused = false;
+  clearTimeout(timer); clearInterval(countdownTimer);
+  setControls('idle');
+  $('nextUpBox').textContent = 'Queue is idle — press Start sending once your list and message are ready.';
+});
+
+function scheduleNext(overrideDelaySec){
+  if(!sending || paused) return;
+  if(currentIndex >= drivers.length){
+    sending = false; setControls('idle');
+    $('nextUpBox').textContent = 'All done — every driver in the list has been processed.';
+    return;
+  }
+  const delaySec = overrideDelaySec !== undefined ? overrideDelaySec : parseInt($('delaySelect').value, 10);
+  let remaining = delaySec;
+  const driver = drivers[currentIndex];
+  updateNextUp(driver, remaining);
+  clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    remaining -= 1;
+    if(remaining < 0) { clearInterval(countdownTimer); return; }
+    updateNextUp(driver, remaining);
+  }, 1000);
+  timer = setTimeout(() => sendOne(currentIndex), delaySec*1000);
+}
+
+function updateNextUp(driver, secs){
+  const m = Math.floor(secs/60), s = secs%60;
+  const t = `${m>0 ? m+':' : ''}${m>0 ? String(s).padStart(2,'0') : s}${m>0?'':'s'}`;
+  $('nextUpBox').innerHTML = `Next dispatch in <span class="countdown">${t}</span> → <b>${escapeHtml(driver.name || driver.email)}</b>`;
+}
+
+async function sendOne(index){
+  const d = drivers[index];
+  if(!d){ return; }
+  d.status = 'sending'; renderList();
+
+  const subject = $('subject').value;
+  const bodyText = $('body').value.replaceAll('{{name}}', d.name || 'there');
+  const connected = config.serviceId && config.templateId && config.publicKey;
+
+  try{
+    if(connected){
+      const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          service_id: config.serviceId,
+          template_id: config.templateId,
+          user_id: config.publicKey,
+          template_params: {
+            to_email: d.email,
+            to_name: d.name || d.email,
+            subject: subject,
+            message: bodyText
+          }
+        })
+      });
+      if(!res.ok) throw new Error('send failed');
+    } else {
+      // simulation mode — no real network call
+      await new Promise(r => setTimeout(r, 500));
+    }
+    d.status = 'sent';
+  } catch(err){
+    d.status = 'failed';
+  }
+  d.time = new Date().toLocaleTimeString();
+  renderList();
+  currentIndex += 1;
+  scheduleNext();
+}
+
+renderList();
+</script>
+</body>
+</html>
